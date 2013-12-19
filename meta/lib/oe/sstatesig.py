@@ -85,7 +85,7 @@ bb.siggen.SignatureGeneratorOEBasic = SignatureGeneratorOEBasic
 bb.siggen.SignatureGeneratorOEBasicHash = SignatureGeneratorOEBasicHash
 
 
-def find_siginfo(pn, taskname, taskhashlist, d):
+def find_siginfo(pn, taskname, taskhashlist, d, hashfn = None):
     """ Find signature data files for comparison purposes """
 
     import fnmatch
@@ -93,6 +93,10 @@ def find_siginfo(pn, taskname, taskhashlist, d):
 
     if taskhashlist:
         hashfiles = {}
+
+    # This is based on BB_HASHFILENAME set for the recipe and provided from the cache
+    if hashfn:
+         hashfn = hashfn.split(" ")[1]
 
     if not taskname:
         # We have to derive pn and taskname
@@ -157,6 +161,8 @@ def find_siginfo(pn, taskname, taskhashlist, d):
                 for fn in files:
                     fullpath = os.path.join(root, fn)
                     if fnmatch.fnmatch(fullpath, filespec):
+                        if hashfn and not os.path.basename(fullpath).startswith(hashfn):
+                            continue
                         if taskhashlist:
                             hashfiles[hashval] = fullpath
                         else:
