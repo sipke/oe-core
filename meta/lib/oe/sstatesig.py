@@ -154,7 +154,6 @@ def find_siginfo(pn, taskname, taskhashlist, d, hashfn = None):
             else:
                 sstatedir = d.getVar('SSTATE_DIR', True)
 
-            filedates = {}
             for root, dirs, files in os.walk(sstatedir):
                 for fn in files:
                     fullpath = os.path.join(root, fn)
