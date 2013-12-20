@@ -27,6 +27,7 @@ class BaseTarget(object):
     def __init__(self, d):
         self.connection = None
         self.ip = None
+        self.port = None
         self.server_ip = None
         self.datetime = d.getVar('DATETIME', True)
         self.testdir = d.getVar("TEST_LOG_DIR", True)
@@ -62,6 +63,7 @@ class QemuTarget(BaseTarget):
         self.qemulog = os.path.join(self.testdir, "qemu_boot_log.%s" % self.datetime)
         self.origrootfs = os.path.join(d.getVar("DEPLOY_DIR_IMAGE", True),  d.getVar("IMAGE_LINK_NAME", True) + '.ext3')
         self.rootfs = os.path.join(self.testdir, d.getVar("IMAGE_LINK_NAME", True) + '-testimage.ext3')
+        self.nativesysroot = d.getVar("STAGING_BINDIR_NATIVE", True)
 
         self.runner = QemuRunner(machine=d.getVar("MACHINE", True),
                         rootfs=self.rootfs,
@@ -69,7 +71,8 @@ class QemuTarget(BaseTarget):
                         deploy_dir_image = d.getVar("DEPLOY_DIR_IMAGE", True),
                         display = d.getVar("BB_ORIGENV", False).getVar("DISPLAY", True),
                         logfile = self.qemulog,
-                        boottime = int(d.getVar("TEST_QEMUBOOT_TIMEOUT", True)))
+                        boottime = int(d.getVar("TEST_QEMUBOOT_TIMEOUT", True)),
+                        nativesysroot = self.nativesysroot)
 
     def deploy(self):
         try:
@@ -89,10 +92,11 @@ class QemuTarget(BaseTarget):
     def start(self, params=None):
         if self.runner.start(params):
             self.ip = self.runner.ip
+            self.port = self.runner.port
             self.server_ip = self.runner.server_ip
             if self.user is None:
-                self.user = "root"
-            self.connection = SSHControl(ip=self.ip, logfile=self.sshlog, login=self.user)
+                self.user = self.runner.user
+            self.connection = SSHControl(ip=self.ip, logfile=self.sshlog, login=self.user, port = self.port)
         else:
             raise bb.build.FuncFailed("%s - FAILED to start qemu - check the task log and the boot log" % self.pn)
 

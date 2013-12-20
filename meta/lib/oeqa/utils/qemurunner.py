@@ -15,9 +15,10 @@ import select
 import bb
 
 import importlib
+
 class QemuRunner:
 
-    def __init__(self, machine, rootfs, display, tmpdir, deploy_dir_image, logfile, boottime):
+    def __init__(self, machine, rootfs, display, tmpdir, deploy_dir_image, logfile, boottime, nativesysroot):
 
         # Popen object for runqemu
         self.runqemu = None
@@ -25,8 +26,12 @@ class QemuRunner:
         self.qemupid = None
         # target ip - from the command line
         self.ip = None
+        # Port to be used for connection (ssh)
+        self.port = None
         # host ip - where qemu is running
         self.server_ip = None
+        # ssh user
+        self.user = "root"
 
         self.machine = machine
         self.rootfs = rootfs
@@ -37,6 +42,8 @@ class QemuRunner:
         self.boottime = boottime
 
         self.runqemutime = 60
+
+        self.nativesysroot = nativesysroot
 
         self.create_socket()
 
@@ -83,6 +90,44 @@ class QemuRunner:
             with open(self.logfile, "a") as f:
                 f.write("%s" % msg)
 
+    # Look for a Qemu starter class for the given machine
+    # (likely in the given machine's BSP layer) and launch it
+    # Then obtain the IPs and ports to use for host and device under test. This
+    # will allow (for example) qemu to use port redirect for networking rather
+    # than tap if it so choses
+    # Allow the qemu starter to define a user for the ssh connection from host
+    # to device under test. User should be set to None if ssh should be called
+    # without user (i.e. current user will be used)
+    def trylaunchstarter(self):
+        starterexists = False
+        try:
+            startermodulename = "oeqa.utils.{0}starter".format(self.machine)
+            startername = "{0}starter".format(self.machine).capitalize()
+            startermodule = __import__(startermodulename, globals(), locals(), [startername])
+            starterclass = getattr(startermodule, startername)
+            starterinstance = starterclass()
+            starterexists = True
+            bb.note("Launching qemu using starter: %s" % startermodulename)
+        except:
+            # Ignore error as it is a valid condition that there is no starter
+            bb.note("No qemu starter found, need to default to runqemu")
+        if starterexists:
+            try:
+                # serial redirect is required by this test framework, so pass
+                # this qemu parameter onto the qemu runner
+                qemuextraparams = "-serial tcp:127.0.0.1:%s" % self.serverport
+                self.runqemu = starterinstance.launch(self.nativesysroot, self.deploy_dir_image, qemuextraparams, self.machine, self.rootfs)
+                self.qemupid = self.runqemu.pid
+                bb.note("Qemu started qemupid %s" % self.qemupid)
+                self.ip = starterinstance.ip
+                self.port = starterinstance.port
+                self.server_ip = starterinstance.server_ip
+                self.user = starterinstance.user
+            except:
+                bb.note("Failed to launch qemu starter: %s" % startermodulename)
+
+        return starterexists
+
     def launch_runqemu(self, qemuparams):
         self.qemuparams = 'bootparams="console=tty1 console=ttyS0,115200n8" qemuparams="-serial tcp:127.0.0.1:%s"' % self.serverport
         if qemuparams:
@@ -118,7 +163,15 @@ class QemuRunner:
         # badly with screensavers.
         os.environ["QEMU_DONT_GRAB"] = "1"
 
-        self.launch_runqemu(qemuparams)
+        # If a machine/bsp layer provides a qemu starter class named
+        # <Machine>starter (e.g. Qemuarmstarter) then allow it to launch the
+        # qemu process, otherwise launch runqemu as per normal.
+        if not self.trylaunchstarter():
+            self.launch_runqemu(qemuparams)
+
+        if self.runqemu is None:
+            bb.fatal("Failed to launch Qemu starter or runqemu for machine: " % self.machine)
+            return False
 
         endtime = time.time() + self.runqemutime
         while not self.is_alive() and time.time() < endtime:
@@ -203,12 +256,16 @@ class QemuRunner:
         return False
 
     def is_alive(self):
-        qemu_child = self.find_child(str(self.runqemu.pid))
-        if qemu_child:
-            self.qemupid = qemu_child[0]
-            if os.path.exists("/proc/" + str(self.qemupid)):
-                return True
-        return False
+        if self.qemupid is None:
+            qemu_child = self.find_child(str(self.runqemu.pid))
+            if qemu_child:
+                self.qemupid = qemu_child[0]
+                if os.path.exists("/proc/" + str(self.qemupid)):
+                    return True
+            return False
+        else:
+            return True
+
 
     def find_child(self,parent_pid):
         #

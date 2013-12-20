@@ -29,7 +29,7 @@ class SSHControl(object):
         if login is not None:
             self.ssh = self.ssh + ['-l', login]
         if port is not None:
-            self.ssh = self.ssh + ['-p', port]
+            self.ssh = self.ssh + ['-p', str(port)]
 
     def log(self, msg):
         if self.logfile:
