@@ -14,6 +14,7 @@ import socket
 import select
 import bb
 
+import importlib
 class QemuRunner:
 
     def __init__(self, machine, rootfs, display, tmpdir, deploy_dir_image, logfile, boottime):
@@ -39,6 +40,26 @@ class QemuRunner:
 
         self.create_socket()
 
+    def ips_set(self):
+        return self.ip != None and self.server != None
+
+    def get_ips(self):
+        # If we have no ips set yet, try to extract them from the command line
+        if self.ip is None or self.server_ip is None:
+            cmdline = ''
+            with open('/proc/%s/cmdline' % self.qemupid) as p:
+                cmdline = p.read()
+            ips = re.findall("((?:[0-9]{1,3}\.){3}[0-9]{1,3})", cmdline.split("ip=")[1])
+            if not ips or len(ips) != 3:
+                bb.note("Couldn't get ip from qemu process arguments! Here is the qemu command line used: %s" % cmdline)
+                return False
+            else:
+                self.ip = ips[0]
+                self.server_ip = ips[1]
+                return True
+        # We already have our ips, no need to extract them from the command line
+        else:
+            return True
 
     def create_socket(self):
 
@@ -61,6 +82,16 @@ class QemuRunner:
         if self.logfile:
             with open(self.logfile, "a") as f:
                 f.write("%s" % msg)
+
+    def launch_runqemu(self, qemuparams):
+        self.qemuparams = 'bootparams="console=tty1 console=ttyS0,115200n8" qemuparams="-serial tcp:127.0.0.1:%s"' % self.serverport
+        if qemuparams:
+            self.qemuparams = self.qemuparams[:-1] + " " + qemuparams + " " + '\"'
+        launch_cmd = 'runqemu %s %s %s' % (self.machine, self.rootfs, self.qemuparams)
+        self.runqemu = subprocess.Popen(launch_cmd,shell=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,preexec_fn=os.setpgrp)
+        bb.note("runqemu started, pid is %s" % self.runqemu.pid)
+        bb.note("waiting at most %s seconds for qemu pid" % self.runqemutime)
+
 
     def start(self, qemuparams = None):
 
@@ -86,32 +117,17 @@ class QemuRunner:
         # Set this flag so that Qemu doesn't do any grabs as SDL grabs interact
         # badly with screensavers.
         os.environ["QEMU_DONT_GRAB"] = "1"
-        self.qemuparams = 'bootparams="console=tty1 console=ttyS0,115200n8" qemuparams="-serial tcp:127.0.0.1:%s"' % self.serverport
-        if qemuparams:
-            self.qemuparams = self.qemuparams[:-1] + " " + qemuparams + " " + '\"'
 
-        launch_cmd = 'runqemu %s %s %s' % (self.machine, self.rootfs, self.qemuparams)
-        self.runqemu = subprocess.Popen(launch_cmd,shell=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,preexec_fn=os.setpgrp)
+        self.launch_runqemu(qemuparams)
 
-        bb.note("runqemu started, pid is %s" % self.runqemu.pid)
-        bb.note("waiting at most %s seconds for qemu pid" % self.runqemutime)
         endtime = time.time() + self.runqemutime
         while not self.is_alive() and time.time() < endtime:
             time.sleep(1)
 
         if self.is_alive():
             bb.note("qemu started - qemu procces pid is %s" % self.qemupid)
-            cmdline = ''
-            with open('/proc/%s/cmdline' % self.qemupid) as p:
-                cmdline = p.read()
-            ips = re.findall("((?:[0-9]{1,3}\.){3}[0-9]{1,3})", cmdline.split("ip=")[1])
-            if not ips or len(ips) != 3:
-                bb.note("Couldn't get ip from qemu process arguments! Here is the qemu command line used: %s" % cmdline)
+            if not self.get_ips():
                 self.stop()
-                return False
-            else:
-                self.ip = ips[0]
-                self.server_ip = ips[1]
             bb.note("Target IP: %s" % self.ip)
             bb.note("Server IP: %s" % self.server_ip)
             bb.note("Waiting at most %d seconds for login banner" % self.boottime )
