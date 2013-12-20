@@ -31,6 +31,7 @@ class BaseTarget(object):
         self.datetime = d.getVar('DATETIME', True)
         self.testdir = d.getVar("TEST_LOG_DIR", True)
         self.pn = d.getVar("PN", True)
+        self.user = d.getVar("TEST_USER", True);
 
     def deploy(self):
 
@@ -89,7 +90,9 @@ class QemuTarget(BaseTarget):
         if self.runner.start(params):
             self.ip = self.runner.ip
             self.server_ip = self.runner.server_ip
-            self.connection = SSHControl(ip=self.ip, logfile=self.sshlog)
+            if self.user is None:
+                self.user = "root"
+            self.connection = SSHControl(ip=self.ip, logfile=self.sshlog, login=self.user)
         else:
             raise bb.build.FuncFailed("%s - FAILED to start qemu - check the task log and the boot log" % self.pn)
 
