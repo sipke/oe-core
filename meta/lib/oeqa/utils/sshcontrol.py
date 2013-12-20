@@ -13,7 +13,7 @@ import select
 
 class SSHControl(object):
 
-    def __init__(self, ip=None, timeout=300, logfile=None, login="root"):
+    def __init__(self, ip=None, timeout=300, logfile=None, login="root", port=None):
         self.ip = ip
         self.timeout = timeout
         self._starttime = None
@@ -28,6 +28,8 @@ class SSHControl(object):
         self.ssh = ['ssh'] + self.ssh_options
         if login is not None:
             self.ssh = self.ssh + ['-l', login]
+        if port is not None:
+            self.ssh = self.ssh + ['-p', port]
 
     def log(self, msg):
         if self.logfile:
