@@ -14,12 +14,37 @@ from oeqa.utils.qemurunner import QemuRunner
 
 
 def get_target_controller(d):
+    # If: one of the default test targets, return it
     if d.getVar("TEST_TARGET", True) == "qemu":
         return QemuTarget(d)
     elif d.getVar("TEST_TARGET", True) == "simpleremote":
         return SimpleRemoteTarget(d)
+    # Else: use a test target class, or if none, error out
     else:
-        bb.fatal("Please set a valid TEST_TARGET")
+        targetinstance = try_get_bsp_target(d.getVar("TEST_TARGET", True), d)
+        if (targetinstance is None):
+            bb.fatal("Invalid TEST_TARGET: %s, Please set a valid TEST_TARGET" % d.getVar("TEST_TARGET", True))
+        else:
+            return targetinstance
+
+# Look for the target as a python class (possibly in a bsp layer).
+# BSP layers can extend the lib/oeqa/utils modules and supply their own test
+# targets, with board specific setup as required.
+# The python class for the target must be the same as TEST_TARGET, and the
+# python file must be the same but lower case.
+def try_get_bsp_target(testtarget, d):
+    targetinstance = None
+    try:
+        targetmodulename = "oeqa.utils.{0}".format(testtarget.lower())
+        targetmodule = __import__(targetmodulename, globals(), locals(), [testtarget])
+        targetclass = getattr(targetmodule, testtarget)
+        targetinstance = targetclass(d)
+        bb.note("Test target found: %s" % testtarget)
+    except:
+        targetinstance = None
+        bb.note("Test target not found: %s" % testtarget)
+
+    return targetinstance
 
 
 class BaseTarget(object):
